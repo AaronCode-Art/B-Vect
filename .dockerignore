@@ -1,0 +1,13 @@
+.git/
+.env.*
+target/
+avances/
+uploads/
+db/
+.github/
+.idea/
+.vscode/
+*.docx
+*.log
+Contexto.txt
+HELP.md
