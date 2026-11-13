@@ -2,6 +2,7 @@ package com.vect.vect.service;
 
 import com.vect.vect.dto.response.ReporteIncidenciasDTO;
 import com.vect.vect.entity.Incidencia;
+import com.vect.vect.entity.Usuario;
 import com.vect.vect.repository.IncidenciaRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +26,11 @@ public class ReporteService {
 
     @Transactional(readOnly = true)
     public ReporteIncidenciasDTO generar(int dias) {
+        return generar(dias, null);
+    }
+
+    @Transactional(readOnly = true)
+    public ReporteIncidenciasDTO generar(int dias, Usuario actor) {
         if (dias < 1 || dias > MAX_DIAS_REPORTE) {
             throw com.vect.vect.common.exception.ApiException.badRequest("RANGO_REPORTE_INVALIDO",
                 "El rango del reporte debe estar entre 1 y " + MAX_DIAS_REPORTE + " días");
@@ -32,25 +38,42 @@ public class ReporteService {
         LocalDate hasta = LocalDate.now();
         LocalDate desde = hasta.minusDays(dias - 1L);
         LocalDateTime desdeHora = desde.atStartOfDay();
+        boolean globalAccess = actor != null && (actor.getRol() == Usuario.RolUsuario.ADMIN
+            || actor.getRol() == Usuario.RolUsuario.GERENCIA
+            || actor.getRol() == Usuario.RolUsuario.SUPERVISOR);
+        boolean technician = actor != null && actor.getRol() == Usuario.RolUsuario.TECNICO;
 
         Map<String, Long> porEstado = new LinkedHashMap<>();
         for (Incidencia.EstadoIncidencia estado : Incidencia.EstadoIncidencia.values()) {
             porEstado.put(estado.name(), 0L);
         }
-        incidenciaRepository.contarPorEstado(desdeHora).forEach(row ->
+        var estados = actor == null
+            ? incidenciaRepository.contarPorEstado(desdeHora)
+            : incidenciaRepository.contarEstadosVisibles(
+                desdeHora, globalAccess, technician, actor.getId());
+        estados.forEach(row ->
             porEstado.put(((Incidencia.EstadoIncidencia) row[0]).name(), ((Number) row[1]).longValue()));
 
-        Map<String, Long> porCategoria = toMap(incidenciaRepository.contarPorCategoria(desdeHora));
+        Map<String, Long> porCategoria = toMap(actor == null
+            ? incidenciaRepository.contarPorCategoria(desdeHora)
+            : incidenciaRepository.contarCategoriasVisibles(
+                desdeHora, globalAccess, technician, actor.getId()));
         Map<String, Long> porPrioridad = new LinkedHashMap<>();
         for (Incidencia.NivelPrioridad prioridad : Incidencia.NivelPrioridad.values()) {
             porPrioridad.put(prioridad.name(), 0L);
         }
-        incidenciaRepository.contarPorPrioridad(desdeHora).forEach(row ->
+        var prioridades = actor == null
+            ? incidenciaRepository.contarPorPrioridad(desdeHora)
+            : incidenciaRepository.contarPrioridadesVisibles(
+                desdeHora, globalAccess, technician, actor.getId());
+        prioridades.forEach(row ->
             porPrioridad.put(((Incidencia.NivelPrioridad) row[0]).name(), ((Number) row[1]).longValue()));
-
         long total = porEstado.values().stream().mapToLong(Long::longValue).sum();
-        List<ReporteIncidenciasDTO.SerieDiaria> serie = incidenciaRepository
-            .contarCreadasYResueltasPorDia(desdeHora, hasta).stream()
+        var actividad = actor == null
+            ? incidenciaRepository.contarCreadasYResueltasPorDia(desdeHora, hasta)
+            : incidenciaRepository.contarActividadVisiblePorDia(
+                desdeHora, hasta, globalAccess, technician, actor.getId());
+        List<ReporteIncidenciasDTO.SerieDiaria> serie = actividad.stream()
             .map(row -> new ReporteIncidenciasDTO.SerieDiaria(
                 LocalDate.parse(row[0].toString()),
                 ((Number) row[1]).longValue(),

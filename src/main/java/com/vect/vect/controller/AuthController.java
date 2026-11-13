@@ -2,6 +2,8 @@ package com.vect.vect.controller;
 
 import com.vect.vect.dto.request.LoginRequest;
 import com.vect.vect.dto.request.RefreshTokenRequest;
+import com.vect.vect.dto.request.VerifyMfaRequest;
+import com.vect.vect.dto.response.AuthFlowResponse;
 import com.vect.vect.dto.response.AuthResponse;
 import com.vect.vect.dto.response.UsuarioDTO;
 import com.vect.vect.entity.Usuario;
@@ -25,8 +27,13 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
+    public ResponseEntity<AuthFlowResponse> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(authService.login(request));
+    }
+
+    @PostMapping("/mfa/verify")
+    public ResponseEntity<AuthFlowResponse> verificarMfa(@Valid @RequestBody VerifyMfaRequest request) {
+        return ResponseEntity.ok(authService.verificarMfa(request));
     }
 
     @PostMapping("/refresh")

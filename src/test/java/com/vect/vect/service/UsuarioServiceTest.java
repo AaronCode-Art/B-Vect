@@ -45,15 +45,71 @@ class UsuarioServiceTest {
     }
 
     @Test
-    void managerCanOnlyManageOperationalRoles() {
+    void managerCanCreateUsersWithAnyRole() {
         Usuario gerencia = usuario(Usuario.RolUsuario.GERENCIA);
         UsuarioRequest request = new UsuarioRequest("Nombre", "Apellido", "user@example.com",
             null, Usuario.RolUsuario.ADMIN, true, "Password123");
+        when(usuarioRepository.existsByCorreoIgnoreCase("user@example.com")).thenReturn(false);
+        when(passwordEncoder.encode("Password123")).thenReturn("encoded-password");
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(usuarioMapper.toDto(any(Usuario.class))).thenReturn(
+            new UsuarioDTO(null, "Nombre", "Apellido", "user@example.com", null, "ADMIN", true, true, null));
 
-        assertThatThrownBy(() -> service.crear(request, gerencia))
-            .isInstanceOf(ApiException.class);
+        service.crear(request, gerencia);
 
-        verifyNoInteractions(usuarioRepository, passwordEncoder);
+        var captor = org.mockito.ArgumentCaptor.forClass(Usuario.class);
+        verify(usuarioRepository).save(captor.capture());
+        assertThat(captor.getValue().getRol()).isEqualTo(Usuario.RolUsuario.ADMIN);
+    }
+
+    @Test
+    void supervisorCannotUpdateNonTechnicianUsers() {
+        Usuario supervisor = usuario(Usuario.RolUsuario.SUPERVISOR);
+        Usuario empleado = usuario(Usuario.RolUsuario.EMPLEADO);
+        UsuarioRequest request = new UsuarioRequest("Nombre", "Apellido", "user@example.com",
+            null, Usuario.RolUsuario.EMPLEADO, true, null);
+        when(usuarioRepository.findById(any())).thenReturn(java.util.Optional.of(empleado));
+
+        assertThatThrownBy(() -> service.actualizar(java.util.UUID.randomUUID(), request, supervisor))
+            .isInstanceOf(ApiException.class)
+            .hasMessageContaining("No tiene permiso");
+
+        verify(usuarioRepository, never()).save(any());
+    }
+
+    @Test
+    void supervisorCannotChangeTechnicianActiveStatus() {
+        Usuario supervisor = usuario(Usuario.RolUsuario.SUPERVISOR);
+        Usuario tecnico = usuario(Usuario.RolUsuario.TECNICO);
+        tecnico.setActivo(true);
+        UsuarioRequest request = new UsuarioRequest("Nombre", "Apellido", "user@example.com",
+            null, Usuario.RolUsuario.TECNICO, false, null);
+        when(usuarioRepository.findById(any())).thenReturn(java.util.Optional.of(tecnico));
+
+        assertThatThrownBy(() -> service.actualizar(java.util.UUID.randomUUID(), request, supervisor))
+            .isInstanceOf(ApiException.class)
+            .hasMessageContaining("No tiene permiso");
+
+        verify(usuarioRepository, never()).save(any());
+    }
+
+    @Test
+    void managerCanChangeAnyUserRole() {
+        Usuario gerencia = usuario(Usuario.RolUsuario.GERENCIA);
+        Usuario adminUser = usuario(Usuario.RolUsuario.ADMIN);
+        adminUser.setCorreo("admin@example.com");
+        UsuarioRequest request = new UsuarioRequest("Nombre", "Apellido", "admin@example.com",
+            null, Usuario.RolUsuario.EMPLEADO, true, null);
+        when(usuarioRepository.findById(any())).thenReturn(java.util.Optional.of(adminUser));
+        when(usuarioRepository.save(any(Usuario.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(usuarioMapper.toDto(any(Usuario.class))).thenReturn(
+            new UsuarioDTO(adminUser.getId(), "Nombre", "Apellido", "admin@example.com", null,
+                "EMPLEADO", true, true, null));
+
+        service.actualizar(adminUser.getId(), request, gerencia);
+
+        assertThat(adminUser.getRol()).isEqualTo(Usuario.RolUsuario.EMPLEADO);
+        verify(usuarioRepository).save(adminUser);
     }
 
     @Test
@@ -74,6 +130,47 @@ class UsuarioServiceTest {
         assertThat(captor.getValue().getCorreo()).isEqualTo("ada@example.com");
         assertThat(captor.getValue().getHashContrasena()).isEqualTo("encoded-password");
         assertThat(captor.getValue().getDebeCambiarContrasena()).isTrue();
+    }
+
+    @Test
+    void managerCanResetAnotherUsersMfaAndRequireEnrollmentAgain() {
+        Usuario manager = usuario(Usuario.RolUsuario.GERENCIA);
+        Usuario target = usuario(Usuario.RolUsuario.EMPLEADO);
+        target.setMfaSecretEncrypted("encrypted-secret");
+        target.setMfaLastAcceptedStep(123L);
+        target.setMfaFailedAttempts(3);
+        target.setMfaLockedUntil(java.time.LocalDateTime.now());
+        when(usuarioRepository.findById(any())).thenReturn(java.util.Optional.of(target));
+
+        service.reiniciarMfa(java.util.UUID.randomUUID(), manager);
+
+        assertThat(target.getMfaSecretEncrypted()).isNull();
+        assertThat(target.getMfaLastAcceptedStep()).isNull();
+        assertThat(target.getMfaFailedAttempts()).isZero();
+        assertThat(target.getMfaLockedUntil()).isNull();
+    }
+
+    @Test
+    void supervisorCannotResetMfa() {
+        Usuario supervisor = usuario(Usuario.RolUsuario.SUPERVISOR);
+
+        assertThatThrownBy(() -> service.reiniciarMfa(java.util.UUID.randomUUID(), supervisor))
+            .isInstanceOf(ApiException.class)
+            .hasMessageContaining("Solo Administración o Gerencia");
+
+        verifyNoInteractions(usuarioRepository);
+    }
+
+    @Test
+    void userCannotResetTheirOwnMfa() {
+        Usuario admin = usuario(Usuario.RolUsuario.ADMIN);
+        admin.setId(java.util.UUID.randomUUID());
+
+        assertThatThrownBy(() -> service.reiniciarMfa(admin.getId(), admin))
+            .isInstanceOf(ApiException.class)
+            .hasMessageContaining("Otro usuario");
+
+        verifyNoInteractions(usuarioRepository);
     }
 
     private Usuario usuario(Usuario.RolUsuario rol) {

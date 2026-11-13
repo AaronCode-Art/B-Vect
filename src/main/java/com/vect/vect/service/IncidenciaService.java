@@ -6,6 +6,10 @@ import com.vect.vect.common.exception.ApiException;
 import com.vect.vect.entity.*;
 import com.vect.vect.mapper.IncidenciaMapper;
 import com.vect.vect.repository.*;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +52,33 @@ public class IncidenciaService {
             case EMPLEADO -> incidenciaRepository.findAllByReportante_IdOrderByCreadoEnDesc(actor.getId());
         };
         return incidencias.stream().map(incidenciaMapper::toDto).toList();
+    }
+
+    @Transactional(readOnly = true)
+    public Page<IncidenciaDTO> listarPaginado(Usuario actor, int page, int size, String query,
+                                               Incidencia.EstadoIncidencia estado) {
+        if (page < 0 || size < 1 || size > 100) {
+            throw ApiException.badRequest("PAGINACION_INVALIDA",
+                "La página no puede ser negativa y el tamaño debe estar entre 1 y 100");
+        }
+        String normalizedQuery = query == null || query.isBlank() ? "" : query.trim();
+        boolean globalAccess = actor.getRol() == Usuario.RolUsuario.ADMIN
+            || actor.getRol() == Usuario.RolUsuario.GERENCIA
+            || actor.getRol() == Usuario.RolUsuario.SUPERVISOR;
+        boolean technician = actor.getRol() == Usuario.RolUsuario.TECNICO;
+        Pageable pageable = PageRequest.of(page, size,
+            Sort.by(Sort.Direction.DESC, "creadoEn").and(Sort.by(Sort.Direction.DESC, "id")));
+        return incidenciaRepository.buscarPaginaVisible(
+                globalAccess, technician, actor.getId(), normalizedQuery, estado, pageable)
+            .map(incidenciaMapper::toDto);
+    }
+
+    @Transactional(readOnly = true)
+    public List<IncidenciaDTO> listarRecientes(Usuario actor, int limit, Incidencia.EstadoIncidencia estado) {
+        if (limit < 1 || limit > 50) {
+            throw ApiException.badRequest("LIMITE_INVALIDO", "El límite debe estar entre 1 y 50");
+        }
+        return listarPaginado(actor, 0, limit, null, estado).getContent();
     }
 
     @Transactional(readOnly = true)

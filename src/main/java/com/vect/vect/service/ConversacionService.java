@@ -52,6 +52,7 @@ public class ConversacionService {
     private final MensajeConversacionRepository mensajeRepository;
     private final UsuarioRepository usuarioRepository;
     private final Cloudinary cloudinary;
+    private final ChatMessagePublisher chatMessagePublisher;
     private final boolean cloudinaryConfigured;
 
     public ConversacionService(ConversacionRepository conversacionRepository,
@@ -59,6 +60,7 @@ public class ConversacionService {
                                MensajeConversacionRepository mensajeRepository,
                                UsuarioRepository usuarioRepository,
                                Cloudinary cloudinary,
+                               ChatMessagePublisher chatMessagePublisher,
                                @Value("${app.cloudinary.cloud-name:}") String cloudName,
                                @Value("${app.cloudinary.api-key:}") String apiKey,
                                @Value("${app.cloudinary.api-secret:}") String apiSecret) {
@@ -67,6 +69,7 @@ public class ConversacionService {
         this.mensajeRepository = mensajeRepository;
         this.usuarioRepository = usuarioRepository;
         this.cloudinary = cloudinary;
+        this.chatMessagePublisher = chatMessagePublisher;
         this.cloudinaryConfigured = !cloudName.isBlank() && !apiKey.isBlank() && !apiSecret.isBlank();
     }
 
@@ -143,6 +146,11 @@ public class ConversacionService {
             .map(this::toMensajeDto).toList();
     }
 
+    @Transactional(readOnly = true)
+    public void verificarAccesoChat(UUID conversacionId, Usuario actor) {
+        verificarMiembro(conversacionId, actor);
+    }
+
     @Transactional
     public MensajeConversacionDTO enviar(UUID conversacionId, MensajeConversacionRequest request, Usuario actor) {
         Conversacion conversacion = verificarMiembro(conversacionId, actor);
@@ -152,7 +160,9 @@ public class ConversacionService {
         mensaje.setCuerpo(request.cuerpo().trim());
         mensaje = mensajeRepository.save(mensaje);
         conversacion.setActualizadoEn(LocalDateTime.now());
-        return toMensajeDto(mensaje);
+        MensajeConversacionDTO response = toMensajeDto(mensaje);
+        chatMessagePublisher.publishConversation(conversacionId, response);
+        return response;
     }
 
     @Transactional
@@ -206,7 +216,9 @@ public class ConversacionService {
         try {
             mensaje = mensajeRepository.save(mensaje);
             conversacion.setActualizadoEn(LocalDateTime.now());
-            return toMensajeDto(mensaje);
+            MensajeConversacionDTO response = toMensajeDto(mensaje);
+            chatMessagePublisher.publishConversation(conversacionId, response);
+            return response;
         } catch (RuntimeException exception) {
             eliminarAdjunto(storageKey, resultado.get("resource_type"));
             throw exception;

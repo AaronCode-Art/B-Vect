@@ -56,8 +56,6 @@ public class EvidenciaService {
         Incidencia incidencia = buscarIncidencia(incidenciaId);
         verificarVisibilidad(incidencia, actor);
         return evidenciaRepository.findAllByIncidencia_IdOrderByCreadoEnDesc(incidenciaId).stream()
-            .filter(evidencia -> actor.getRol() != Usuario.RolUsuario.EMPLEADO
-                || evidencia.getSubidoPor().getId().equals(actor.getId()))
             .map(this::toDto)
             .toList();
     }

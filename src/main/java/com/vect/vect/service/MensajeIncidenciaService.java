@@ -21,13 +21,16 @@ public class MensajeIncidenciaService {
     private final MensajeIncidenciaRepository mensajeRepository;
     private final IncidenciaRepository incidenciaRepository;
     private final MensajeChatMapper mensajeMapper;
+    private final ChatMessagePublisher chatMessagePublisher;
 
     public MensajeIncidenciaService(MensajeIncidenciaRepository mensajeRepository,
                                     IncidenciaRepository incidenciaRepository,
-                                    MensajeChatMapper mensajeMapper) {
+                                    MensajeChatMapper mensajeMapper,
+                                    ChatMessagePublisher chatMessagePublisher) {
         this.mensajeRepository = mensajeRepository;
         this.incidenciaRepository = incidenciaRepository;
         this.mensajeMapper = mensajeMapper;
+        this.chatMessagePublisher = chatMessagePublisher;
     }
 
     @Transactional(readOnly = true)
@@ -54,6 +57,11 @@ public class MensajeIncidenciaService {
             .toList();
     }
 
+    @Transactional(readOnly = true)
+    public void verificarAccesoChat(UUID incidenciaId, MensajeIncidencia.CanalMensaje canal, Usuario actor) {
+        verificarVisibilidad(buscarIncidencia(incidenciaId), canal, actor);
+    }
+
     @Transactional
     public MensajeChatDTO enviarMensaje(UUID incidenciaId, MensajeChatRequest request, Usuario remitente) {
         Incidencia incidencia = buscarIncidencia(incidenciaId);
@@ -75,7 +83,9 @@ public class MensajeIncidenciaService {
         mensaje.setCuerpo(request.contenido());
 
         mensaje = mensajeRepository.save(mensaje);
-        return mensajeMapper.toDto(mensaje);
+        MensajeChatDTO response = mensajeMapper.toDto(mensaje);
+        chatMessagePublisher.publishIncident(incidenciaId, request.canal().name(), response);
+        return response;
     }
 
     private Incidencia buscarIncidencia(UUID id) {

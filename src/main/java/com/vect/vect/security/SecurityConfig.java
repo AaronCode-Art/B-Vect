@@ -30,7 +30,7 @@ public class SecurityConfig {
     private final List<String> allowedOrigins;
 
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
-                         @Value("${app.cors.allowed-origins:https://f-vect.onrender.com,http://localhost:5173}") String allowedOrigins) {
+                         @Value("${app.cors.allowed-origins}") String allowedOrigins) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
             .map(String::trim)
@@ -50,6 +50,7 @@ public class SecurityConfig {
                 .authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/ws", "/ws/**").permitAll()
                 .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/api-docs", "/api-docs/**",
                     "/v3/api-docs", "/v3/api-docs/**").permitAll()
                 .anyRequest().authenticated()

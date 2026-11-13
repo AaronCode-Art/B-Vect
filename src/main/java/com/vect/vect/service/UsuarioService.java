@@ -64,6 +64,12 @@ public class UsuarioService {
             .orElseThrow(() -> ApiException.notFound("USUARIO_NO_ENCONTRADO", "Usuario no encontrado"));
         verificarRolAdministrable(actor, usuario.getRol());
         verificarRolAdministrable(actor, request.rol());
+        if (actor.getRol() == Usuario.RolUsuario.SUPERVISOR
+            && request.activo() != null
+            && !request.activo().equals(usuario.getActivo())) {
+            throw ApiException.forbidden("ESTADO_NO_ADMINISTRABLE",
+                "No tiene permiso para cambiar el estado de los usuarios");
+        }
         String correo = request.correo().trim().toLowerCase(java.util.Locale.ROOT);
         if (!correo.equalsIgnoreCase(usuario.getCorreo()) && usuarioRepository.existsByCorreoIgnoreCase(correo)) {
             throw ApiException.conflict("CORREO_EN_USO", "Ya existe un usuario con ese correo");
@@ -87,6 +93,23 @@ public class UsuarioService {
         usuario.setActivo(false);
     }
 
+    @Transactional
+    public void reiniciarMfa(UUID id, Usuario actor) {
+        if (actor.getRol() != Usuario.RolUsuario.ADMIN && actor.getRol() != Usuario.RolUsuario.GERENCIA) {
+            throw ApiException.forbidden("MFA_NO_ADMINISTRABLE", "Solo Administración o Gerencia puede reiniciar MFA");
+        }
+        if (id.equals(actor.getId())) {
+            throw ApiException.conflict("NO_PUEDE_REINICIAR_SU_MFA",
+                "Otro usuario de Administración o Gerencia debe reiniciar su autenticador");
+        }
+        Usuario usuario = usuarioRepository.findById(id)
+            .orElseThrow(() -> ApiException.notFound("USUARIO_NO_ENCONTRADO", "Usuario no encontrado"));
+        usuario.setMfaSecretEncrypted(null);
+        usuario.setMfaLastAcceptedStep(null);
+        usuario.setMfaFailedAttempts(0);
+        usuario.setMfaLockedUntil(null);
+    }
+
     private void actualizarCampos(Usuario usuario, UsuarioRequest request, String correo) {
         usuario.setNombres(request.nombres().trim());
         usuario.setApellidos(request.apellidos().trim());
@@ -108,9 +131,7 @@ public class UsuarioService {
 
     private boolean puedeAdministrar(Usuario actor, Usuario.RolUsuario rol) {
         return switch (actor.getRol()) {
-            case ADMIN -> true;
-            case GERENCIA -> rol == Usuario.RolUsuario.SUPERVISOR
-                || rol == Usuario.RolUsuario.TECNICO || rol == Usuario.RolUsuario.EMPLEADO;
+            case ADMIN, GERENCIA -> true;
             case SUPERVISOR -> rol == Usuario.RolUsuario.TECNICO;
             case TECNICO, EMPLEADO -> false;
         };

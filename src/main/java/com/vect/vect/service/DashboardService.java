@@ -4,7 +4,9 @@ import com.vect.vect.dto.response.DashboardResumenDTO;
 import com.vect.vect.entity.*;
 import com.vect.vect.repository.*;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -26,36 +28,28 @@ public class DashboardService {
         this.componenteRepository = componenteRepository;
     }
 
+    @Transactional(readOnly = true)
     public DashboardResumenDTO resumen() {
-        long total = incidenciaRepository.count();
-        long abiertas = incidenciaRepository.findAll().stream()
-                .filter(i -> i.getEstado() == Incidencia.EstadoIncidencia.REGISTRADA
-                        || i.getEstado() == Incidencia.EstadoIncidencia.ASIGNADA)
-                .count();
-        long enProceso = incidenciaRepository.findAll().stream()
-                .filter(i -> i.getEstado() == Incidencia.EstadoIncidencia.EN_ATENCION
-                        || i.getEstado() == Incidencia.EstadoIncidencia.EN_ESPERA_USUARIO
-                        || i.getEstado() == Incidencia.EstadoIncidencia.EN_ESPERA_REPUESTO)
-                .count();
-        long resueltas = incidenciaRepository.findAll().stream()
-                .filter(i -> i.getEstado() == Incidencia.EstadoIncidencia.RESUELTA)
-                .count();
-        long cerradas = incidenciaRepository.findAll().stream()
-                .filter(i -> i.getEstado() == Incidencia.EstadoIncidencia.CERRADA)
-                .count();
+        Map<Incidencia.EstadoIncidencia, Long> counts = new EnumMap<>(Incidencia.EstadoIncidencia.class);
+        incidenciaRepository.contarTotalPorEstado().forEach(row ->
+                counts.put((Incidencia.EstadoIncidencia) row[0], ((Number) row[1]).longValue()));
+        for (Incidencia.EstadoIncidencia estado : Incidencia.EstadoIncidencia.values()) {
+            counts.putIfAbsent(estado, 0L);
+        }
 
-        long tecnicos = usuarioRepository.findAll().stream()
-                .filter(u -> u.getRol() == Usuario.RolUsuario.TECNICO && u.getActivo())
-                .count();
-
-        long solicitudesPendientes = solicitudRepository.findAll().stream()
-                .filter(s -> s.getEstado() == SolicitudCambio.EstadoSolicitud.PENDIENTE_EVALUACION
-                        || s.getEstado() == SolicitudCambio.EstadoSolicitud.PENDIENTE_GERENCIA)
-                .count();
-
-        long componentesBajoStock = componenteRepository.findAll().stream()
-                .filter(c -> c.getStockActual() <= c.getStockMinimo())
-                .count();
+        long total = counts.values().stream().mapToLong(Long::longValue).sum();
+        long abiertas = count(counts, Incidencia.EstadoIncidencia.REGISTRADA)
+                + count(counts, Incidencia.EstadoIncidencia.ASIGNADA);
+        long enProceso = count(counts, Incidencia.EstadoIncidencia.EN_ATENCION)
+                + count(counts, Incidencia.EstadoIncidencia.EN_ESPERA_USUARIO)
+                + count(counts, Incidencia.EstadoIncidencia.EN_ESPERA_REPUESTO);
+        long resueltas = count(counts, Incidencia.EstadoIncidencia.RESUELTA);
+        long cerradas = count(counts, Incidencia.EstadoIncidencia.CERRADA);
+        long tecnicos = usuarioRepository.countByRolAndActivoTrue(Usuario.RolUsuario.TECNICO);
+        long solicitudesPendientes = solicitudRepository.countByEstadoIn(java.util.List.of(
+                SolicitudCambio.EstadoSolicitud.PENDIENTE_EVALUACION,
+                SolicitudCambio.EstadoSolicitud.PENDIENTE_GERENCIA));
+        long componentesBajoStock = componenteRepository.countBajoStock();
 
         Map<String, Long> porMacroEstado = new HashMap<>();
         porMacroEstado.put("PENDIENTE", abiertas);
@@ -64,5 +58,9 @@ public class DashboardService {
 
         return new DashboardResumenDTO(total, abiertas, enProceso, resueltas, cerradas, 0, tecnicos,
                 solicitudesPendientes, componentesBajoStock, porMacroEstado);
+    }
+
+    private long count(Map<Incidencia.EstadoIncidencia, Long> counts, Incidencia.EstadoIncidencia estado) {
+        return counts.getOrDefault(estado, 0L);
     }
 }

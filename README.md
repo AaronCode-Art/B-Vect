@@ -63,6 +63,7 @@ Estas variables solo permanecen en la sesión actual de PowerShell. No guardes c
 | `JWT_ISSUER` | Emisor de los JWT; por defecto `vect`. |
 | `JWT_ACCESS_EXPIRATION` | Duración del token de acceso en milisegundos; por defecto 900000 (15 minutos). |
 | `JWT_REFRESH_EXPIRATION` | Duración del token de renovación en milisegundos; por defecto 2592000000 (30 días). |
+| `MFA_ENCRYPTION_KEY` | Clave Base64 que representa exactamente 32 bytes aleatorios; obligatoria para iniciar la aplicación. Mantén el mismo valor para poder descifrar los autenticadores registrados. |
 | `CLOUDINARY_CLOUD_NAME` | Cloud de Cloudinary. |
 | `CLOUDINARY_API_KEY` | Clave de API de Cloudinary. |
 | `CLOUDINARY_API_SECRET` | Secreto de API de Cloudinary. |
@@ -80,13 +81,41 @@ El servidor escucha en el puerto `8080`. Los adjuntos tienen un máximo configur
 - `DATABASE_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD` y `JWT_SECRET` son obligatorios. `JWT_SECRET` debe tener al menos 32 bytes; genera un valor aleatorio y guárdalo solo en el entorno local o en el gestor de secretos del servicio de despliegue.
 - `.env.example` es una plantilla de referencia: Spring Boot no carga archivos `.env` automáticamente. Define las variables en la terminal o en la plataforma de despliegue antes de iniciar la aplicación. Las credenciales de Cloudinary son necesarias para habilitar cargas de archivos.
 - Hibernate está configurado con `spring.jpa.hibernate.ddl-auto=validate`: valida el esquema al iniciar, pero **no crea ni actualiza tablas automáticamente**.
-- `db/vect.sql` es el volcado del esquema y datos de referencia. Es una base inicial para restauración en una base nueva; no debe ejecutarse como actualización sobre una base que ya contiene datos.
-- El volcado no incluye cuentas de usuario ni hashes de contraseñas. Antes de usar la autenticación en un entorno nuevo, aprovisiona la cuenta ADMIN mediante un procedimiento seguro fuera del repositorio.
-- `db/migrations/` contiene cambios incrementales. Revisa y aplica solo las migraciones que aún no existan en la base de destino, siguiendo el proceso controlado del proyecto.
-- El esquema emplea tipos enum de PostgreSQL, `jsonb`, claves foráneas y la extensión `pgcrypto`.
-- La migración `20261001_conversation_attachments.sql` añade metadatos de archivos a `mensajes_conversacion`. La migración `20261001_restore_waiting_parts_transitions.sql` añade transiciones de estado asociadas a la espera de repuestos.
+- La autenticación de dos factores TOTP es obligatoria. `/api/auth/login` valida la contraseña y solicita configurar una app autenticadora mediante QR o ingresar el código de 6 dígitos; solo después de verificarlo se entregan los tokens de sesión. Los intentos fallidos se bloquean temporalmente y cada código solo puede utilizarse una vez.
+- Antes de desplegar esta versión, ejecuta una sola vez [`sql/migrations/001-add-required-mfa.sql`](./sql/migrations/001-add-required-mfa.sql) en la base `vect` de Neon. La migración no toca datos existentes; cada cuenta se inscribe la próxima vez que inicie sesión. No inicies la nueva aplicación antes de aplicar la migración.
+- En Render, configura `MFA_ENCRYPTION_KEY` como variable secreta con un valor Base64 aleatorio de 32 bytes. Puedes generarlo localmente con Node.js: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Guarda una copia segura y no la cambies ni la pierdas: los secretos TOTP almacenados no se podrán descifrar con otra clave. No uses `JWT_SECRET` para este propósito.
+- Al desplegar, los tokens emitidos antes de activar MFA dejarán de ser aceptados y cada usuario deberá iniciar sesión y completar la configuración o verificación MFA. La app móvil debe ser compatible con TOTP, por ejemplo Google Authenticator o Microsoft Authenticator; no se usa SMS ni correo.
+- Si una persona pierde acceso a su autenticador, Administración o Gerencia puede solicitar un reinicio de MFA para esa cuenta con `POST /api/usuarios/{id}/mfa/reset` (requiere JWT de un administrador distinto del usuario afectado). En el siguiente inicio de sesión la persona tendrá que escanear un QR nuevo y confirmar el código antes de entrar.
+- El respaldo local disponible en este entorno es `db/vect.sql`. La carpeta `db` está ignorada por Git; conserva una copia segura, porque este archivo no se incluirá al clonar el repositorio.
+- El archivo es un volcado completo de PostgreSQL 18.6: contiene estructura y datos, incluidas cuentas de usuario y otros datos operativos. Incluye 23 tablas, 10 tipos enumerados, 8 funciones de VECT, 13 triggers, 19 índices explícitos y 44 claves foráneas. La tabla `transiciones_estado_incidencia` también es necesaria aunque se consulte mediante SQL y no tenga una entidad JPA. Es información sensible; no la publiques ni la agregues al repositorio.
+- El volcado usa comandos propios de `psql`, `COPY ... FROM stdin`, la extensión `pgcrypto`, roles/propietarios específicos de Neon y `transaction_timeout`. Se verificó una restauración en PostgreSQL local 18.6 con los roles de Neon requeridos previamente creados. La copia solo cubre la base de datos hasta la fecha del respaldo: no incluye adjuntos almacenados en Cloudinary, secretos de la aplicación ni cambios posteriores. No la ejecutes desde el editor SQL web ni supongas que puede restaurarse en cualquier versión o rol.
+- La pantalla principal de incidencias usa `/api/incidencias/pagina`; el dashboard consulta agregados y solo las cinco incidencias recientes, en vez de descargar y recorrer todas las filas. Los índices adicionales están en `sql/optimize-vect-performance.sql`; para una base ya restaurada, ejecútalo con `psql` usando la conexión de Neon y fuera de una transacción. El volcado `db/vect.sql` también incluye los mismos índices para restauraciones nuevas.
 
-Configura `DATABASE_URL`, usuario y contraseña antes de iniciar la aplicación. Si Hibernate informa que faltan columnas, tablas o tipos, compara la base con `db/vect.sql` y las migraciones aplicables; no desactives `validate` para ocultar la diferencia.
+## Chat en tiempo real
+
+- El endpoint WebSocket nativo es `/ws`; el backend publica mensajes guardados en `/topic/conversations/{id}` y `/topic/incidencias/{id}/chat/EMPLEADO_TECNICO`.
+- Las escrituras REST exitosas también emiten una notificación genérica en `/topic/updates` para sincronizar las vistas abiertas, sin incluir datos de los registros.
+- El cliente se autentica con un mensaje JSON `AUTHENTICATE` que contiene el JWT de acceso y solicita suscripciones con mensajes `SUBSCRIBE`. El servidor valida el JWT y autoriza cada suscripción por membresía de conversación o participación en la incidencia.
+- Los clientes reciben mensajes por WebSocket, pero continúan enviándolos mediante la API REST autenticada. Los adjuntos publicados por REST también se transmiten cuando el registro queda guardado.
+- El broker simple es local a una instancia del backend; para distribuir eventos entre varias instancias se necesitaría un broker externo.
+
+### Restaurar el respaldo local
+
+Hazlo solo si necesitas recuperar los datos existentes en ese respaldo. Usa una **base o rama Neon nueva y vacía**, nunca producción ni una base que ya contenga tablas. El volcado crea el esquema `vect` y sus objetos; no es una migración repetible.
+
+Se recomienda `psql` 18, igual que la versión que generó el archivo. El servidor destino debe admitir las características usadas por el volcado (incluido `transaction_timeout`, disponible desde PostgreSQL 17), `pgcrypto` y los roles requeridos. El archivo asigna objetos a `neondb_owner` y contiene privilegios para roles de plataforma; si alguno no existe en el destino, detente ante el error y revisa la compatibilidad antes de continuar. No ignores errores ni reemplaces roles de forma global.
+
+Desde PowerShell, en la carpeta `D:\fullstack\vect`, usa los datos de conexión de la nueva base vacía mostrados por Neon. `-W` solicita la contraseña sin escribirla en el comando:
+
+```powershell
+psql --version
+psql "host=HOST port=5432 dbname=BASE user=USUARIO sslmode=require" `
+  --password `
+  --set=ON_ERROR_STOP=on `
+  --file="db\vect.sql"
+```
+
+Si `psql` se detiene por un error, no vuelvas a ejecutar el volcado sobre esa base parcialmente restaurada; crea otra base o rama vacía después de resolver el requisito señalado. Al terminar, conecta a la base y verifica `\dt vect.*` y `SELECT count(*) FROM vect.usuarios;` sin consultar ni imprimir datos personales. Después configura `DATABASE_URL`, `DATABASE_USERNAME` y `DATABASE_PASSWORD` del backend con la conexión de esa misma base y arranca la aplicación: Hibernate validará el esquema. La restauración solo recupera lo que quedó guardado en el respaldo, no cambios posteriores ni datos que nunca se incluyeron.
 
 ## Ejecución local
 

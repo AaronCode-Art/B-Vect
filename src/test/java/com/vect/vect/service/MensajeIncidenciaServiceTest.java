@@ -28,6 +28,7 @@ class MensajeIncidenciaServiceTest {
     @Mock private MensajeIncidenciaRepository mensajeRepository;
     @Mock private IncidenciaRepository incidenciaRepository;
     @Mock private MensajeChatMapper mensajeMapper;
+    @Mock private ChatMessagePublisher chatMessagePublisher;
 
     private MensajeIncidenciaService service;
     private UUID incidenciaId;
@@ -37,7 +38,8 @@ class MensajeIncidenciaServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new MensajeIncidenciaService(mensajeRepository, incidenciaRepository, mensajeMapper);
+        service = new MensajeIncidenciaService(
+            mensajeRepository, incidenciaRepository, mensajeMapper, chatMessagePublisher);
         incidenciaId = UUID.randomUUID();
         reportante = usuario(Usuario.RolUsuario.EMPLEADO);
         tecnico = usuario(Usuario.RolUsuario.TECNICO);

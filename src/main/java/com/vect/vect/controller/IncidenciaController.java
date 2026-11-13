@@ -8,11 +8,13 @@ import com.vect.vect.dto.response.ActividadIncidenciaDTO;
 import com.vect.vect.dto.response.IncidenciaDTO;
 import com.vect.vect.dto.response.HistorialIncidenciaDTO;
 import com.vect.vect.entity.Usuario;
+import com.vect.vect.entity.Incidencia;
 import com.vect.vect.service.ActividadIncidenciaService;
 import com.vect.vect.service.HistorialIncidenciaService;
 import com.vect.vect.service.IncidenciaService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.data.domain.Page;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
@@ -39,6 +41,26 @@ public class IncidenciaController {
     @GetMapping
     public List<IncidenciaDTO> listar(Authentication authentication) {
         return incidenciaService.listar((Usuario) authentication.getPrincipal());
+    }
+
+    @GetMapping("/pagina")
+    public Page<IncidenciaDTO> listarPaginado(
+            Authentication authentication,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false) String query,
+            @RequestParam(required = false) Incidencia.EstadoIncidencia estado) {
+        return incidenciaService.listarPaginado(
+            (Usuario) authentication.getPrincipal(), page, size, query, estado);
+    }
+
+    @GetMapping("/recientes")
+    public List<IncidenciaDTO> listarRecientes(
+            Authentication authentication,
+            @RequestParam(defaultValue = "5") int limit,
+            @RequestParam(required = false) Incidencia.EstadoIncidencia estado) {
+        return incidenciaService.listarRecientes(
+            (Usuario) authentication.getPrincipal(), limit, estado);
     }
 
     @GetMapping("/{id}")

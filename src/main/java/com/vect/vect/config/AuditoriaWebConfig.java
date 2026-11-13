@@ -2,6 +2,7 @@ package com.vect.vect.config;
 
 import com.vect.vect.entity.Usuario;
 import com.vect.vect.service.AuditoriaService;
+import com.vect.vect.service.ChatMessagePublisher;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Configuration;
@@ -15,22 +16,27 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 public class AuditoriaWebConfig implements WebMvcConfigurer {
 
     private final AuditoriaService auditoriaService;
+    private final ChatMessagePublisher chatMessagePublisher;
 
-    public AuditoriaWebConfig(AuditoriaService auditoriaService) {
+    public AuditoriaWebConfig(AuditoriaService auditoriaService, ChatMessagePublisher chatMessagePublisher) {
         this.auditoriaService = auditoriaService;
+        this.chatMessagePublisher = chatMessagePublisher;
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        registry.addInterceptor(new CambiosApiInterceptor(auditoriaService)).addPathPatterns("/api/**");
+        registry.addInterceptor(new CambiosApiInterceptor(auditoriaService, chatMessagePublisher))
+            .addPathPatterns("/api/**");
     }
 
     private static final class CambiosApiInterceptor implements HandlerInterceptor {
 
         private final AuditoriaService auditoriaService;
+        private final ChatMessagePublisher chatMessagePublisher;
 
-        private CambiosApiInterceptor(AuditoriaService auditoriaService) {
+        private CambiosApiInterceptor(AuditoriaService auditoriaService, ChatMessagePublisher chatMessagePublisher) {
             this.auditoriaService = auditoriaService;
+            this.chatMessagePublisher = chatMessagePublisher;
         }
 
         @Override
@@ -43,6 +49,7 @@ public class AuditoriaWebConfig implements WebMvcConfigurer {
             Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
             if (authentication != null && authentication.getPrincipal() instanceof Usuario actor) {
                 auditoriaService.registrarCambio(request, actor);
+                chatMessagePublisher.publishDataUpdate();
             }
         }
 

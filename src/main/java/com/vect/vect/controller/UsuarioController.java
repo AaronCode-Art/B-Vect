@@ -54,6 +54,13 @@ public class UsuarioController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/{id}/mfa/reset")
+    @PreAuthorize("hasAnyRole('ADMIN', 'GERENCIA')")
+    public ResponseEntity<Void> reiniciarMfa(@PathVariable UUID id, Authentication authentication) {
+        usuarioService.reiniciarMfa(id, (Usuario) authentication.getPrincipal());
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/tecnicos/disponibles")
     @PreAuthorize("hasAnyRole('ADMIN', 'GERENCIA', 'SUPERVISOR')")
     public List<UsuarioDTO> tecnicosDisponibles() {

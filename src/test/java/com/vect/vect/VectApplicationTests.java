@@ -11,6 +11,7 @@ import com.vect.vect.service.HistorialSolicitudCambioService;
 import com.vect.vect.service.ParametroSistemaService;
 import com.vect.vect.service.ReglaAutomatizacionService;
 import com.vect.vect.service.ReporteService;
+import com.vect.vect.service.IncidenciaService;
 import jakarta.persistence.EntityManager;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
@@ -43,6 +44,9 @@ class VectApplicationTests {
 	private ReporteService reporteService;
 
 	@Autowired
+	private IncidenciaService incidenciaService;
+
+	@Autowired
 	private AuditoriaService auditoriaService;
 
 	@Autowired
@@ -56,6 +60,54 @@ class VectApplicationTests {
 
 	@Test
 	void contextLoads() {
+	}
+
+	@Test
+	@Transactional(readOnly = true)
+	void dashboardActivityAggregatesRunAgainstTheConfiguredSchema() {
+		Usuario actor = new Usuario();
+		actor.setId(UUID.randomUUID());
+		actor.setRol(Usuario.RolUsuario.EMPLEADO);
+
+		var activity = reporteService.generar(7, actor);
+
+		assertThat(activity.serieDiaria()).hasSize(7);
+		assertThat(activity.total()).isGreaterThanOrEqualTo(0);
+	}
+
+	@Test
+	@Transactional(readOnly = true)
+	void paginatedIncidentQueryRunsAgainstTheConfiguredSchema() {
+		Usuario actor = new Usuario();
+		actor.setId(UUID.randomUUID());
+		actor.setRol(Usuario.RolUsuario.ADMIN);
+
+		var page = incidenciaService.listarPaginado(actor, 0, 20, null, null);
+
+		assertThat(page.getNumber()).isZero();
+		assertThat(page.getSize()).isEqualTo(20);
+		assertThat(page.getTotalElements()).isGreaterThanOrEqualTo(0);
+	}
+
+	@Test
+	@Transactional(readOnly = true)
+	void employeeCanSeeIncidentsReportedByTheirAccount() {
+		Usuario actor = entityManager.createQuery("""
+				select u from Usuario u
+				where u.rol = :role
+				  and exists (
+				      select i.id from Incidencia i where i.reportante.id = u.id
+				  )
+				""", Usuario.class)
+			.setParameter("role", Usuario.RolUsuario.EMPLEADO)
+			.setMaxResults(1)
+			.getSingleResult();
+
+		var page = incidenciaService.listarPaginado(actor, 0, 20, null, null);
+
+		assertThat(page.getTotalElements()).isPositive();
+		assertThat(page.getContent()).allSatisfy(incidencia ->
+			assertThat(incidencia.reportanteId()).isEqualTo(actor.getId()));
 	}
 
 	@Test

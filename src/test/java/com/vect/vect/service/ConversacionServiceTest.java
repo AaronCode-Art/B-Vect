@@ -36,13 +36,14 @@ class ConversacionServiceTest {
     @Mock private MensajeConversacionRepository mensajeRepository;
     @Mock private UsuarioRepository usuarioRepository;
     @Mock private Cloudinary cloudinary;
+    @Mock private ChatMessagePublisher chatMessagePublisher;
 
     private ConversacionService service;
 
     @BeforeEach
     void setUp() {
         service = new ConversacionService(conversacionRepository, miembroRepository, mensajeRepository,
-            usuarioRepository, cloudinary, "cloud", "key", "secret");
+            usuarioRepository, cloudinary, chatMessagePublisher, "cloud", "key", "secret");
     }
 
     @Test

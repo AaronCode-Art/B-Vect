@@ -48,6 +48,18 @@ public class Usuario {
     @Column(name = "debe_cambiar_contrasena", nullable = false)
     private Boolean debeCambiarContrasena = true;
 
+    @Column(name = "mfa_secret_encrypted", columnDefinition = "TEXT")
+    private String mfaSecretEncrypted;
+
+    @Column(name = "mfa_last_accepted_step")
+    private Long mfaLastAcceptedStep;
+
+    @Column(name = "mfa_failed_attempts", nullable = false)
+    private Integer mfaFailedAttempts = 0;
+
+    @Column(name = "mfa_locked_until")
+    private LocalDateTime mfaLockedUntil;
+
     @Column(name = "ultimo_acceso_en")
     private LocalDateTime ultimoAccesoEn;
 

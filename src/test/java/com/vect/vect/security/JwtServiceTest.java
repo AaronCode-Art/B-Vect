@@ -33,10 +33,23 @@ class JwtServiceTest {
         Claims refreshClaims = jwtService.parseRefreshToken(refresh);
 
         assertThat(accessClaims.get("token_type", String.class)).isEqualTo("access");
+        assertThat(accessClaims.get("mfa_verified", Boolean.class)).isTrue();
         assertThat(refreshClaims.get("token_type", String.class)).isEqualTo("refresh");
+        assertThat(refreshClaims.get("mfa_verified", Boolean.class)).isTrue();
         assertThatThrownBy(() -> jwtService.parseAccessToken(refresh))
             .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> jwtService.parseRefreshToken(access))
+            .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void mfaChallengeTokensCannotBeUsedAsAccessTokens() {
+        String challenge = jwtService.generateMfaChallengeToken(
+            UUID.randomUUID(), "test@example.com", true, "base32-secret");
+
+        assertThat(jwtService.parseMfaChallengeToken(challenge).get("mfa_secret", String.class))
+            .isEqualTo("base32-secret");
+        assertThatThrownBy(() -> jwtService.parseAccessToken(challenge))
             .isInstanceOf(IllegalArgumentException.class);
     }
 }

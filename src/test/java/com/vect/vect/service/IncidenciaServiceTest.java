@@ -6,6 +6,8 @@ import com.vect.vect.entity.Incidencia;
 import com.vect.vect.entity.Usuario;
 import com.vect.vect.mapper.IncidenciaMapper;
 import com.vect.vect.repository.*;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -13,6 +15,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -98,6 +101,46 @@ class IncidenciaServiceTest {
     @Test
     void preservesAllDigitsWhenIncidentSequenceExceedsFourDigits() {
         assertThat(IncidenciaService.formatearCodigo(10000)).isEqualTo("INC-10000");
+    }
+
+    @Test
+    void loadsOnlyTheRequestedVisiblePageAndNormalizesSearchText() {
+        Usuario actor = usuario(Usuario.RolUsuario.TECNICO);
+        when(incidenciaRepository.buscarPaginaVisible(
+                eq(false), eq(true), eq(actor.getId()), eq("red"), isNull(), any(Pageable.class)))
+            .thenReturn(new PageImpl<>(List.of()));
+
+        var result = service.listarPaginado(actor, 2, 20, "  red  ", null);
+
+        assertThat(result.getContent()).isEmpty();
+        verify(incidenciaRepository).buscarPaginaVisible(
+            eq(false), eq(true), eq(actor.getId()), eq("red"), isNull(), any(Pageable.class));
+        verifyNoMoreInteractions(incidenciaRepository);
+    }
+
+    @Test
+    void employeePageIsScopedToTheAuthenticatedReportant() {
+        Usuario actor = usuario(Usuario.RolUsuario.EMPLEADO);
+        when(incidenciaRepository.buscarPaginaVisible(
+                eq(false), eq(false), eq(actor.getId()), eq(""), isNull(), any(Pageable.class)))
+            .thenReturn(new PageImpl<>(List.of()));
+
+        var result = service.listarPaginado(actor, 0, 20, null, null);
+
+        assertThat(result.getContent()).isEmpty();
+        verify(incidenciaRepository).buscarPaginaVisible(
+            eq(false), eq(false), eq(actor.getId()), eq(""), isNull(), any(Pageable.class));
+    }
+
+    @Test
+    void rejectsInvalidIncidentPageParameters() {
+        Usuario actor = usuario(Usuario.RolUsuario.EMPLEADO);
+
+        assertThatThrownBy(() -> service.listarPaginado(actor, -1, 20, null, null))
+            .isInstanceOf(ApiException.class);
+        assertThatThrownBy(() -> service.listarPaginado(actor, 0, 101, null, null))
+            .isInstanceOf(ApiException.class);
+        verifyNoInteractions(incidenciaRepository);
     }
 
     @Test

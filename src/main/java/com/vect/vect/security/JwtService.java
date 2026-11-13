@@ -41,9 +41,33 @@ public class JwtService {
         return generateToken(userId, email, refreshExpirationMs, "refresh");
     }
 
+    public String generateMfaChallengeToken(UUID userId, String email, boolean setup, String secret) {
+        var builder = Jwts.builder()
+            .subject(email)
+            .id(userId.toString())
+            .issuer(issuer)
+            .claim("token_type", setup ? "mfa_setup" : "mfa_challenge")
+            .issuedAt(new Date())
+            .expiration(new Date(System.currentTimeMillis() + 5 * 60_000L));
+        if (setup) {
+            builder.claim("mfa_secret", secret);
+        }
+        return builder.signWith(key()).compact();
+    }
+
+    public Claims parseMfaChallengeToken(String token) {
+        Claims claims = parse(token);
+        String type = claims.get("token_type", String.class);
+        if (!"mfa_setup".equals(type) && !"mfa_challenge".equals(type)) {
+            throw new IllegalArgumentException("Token is not an MFA challenge");
+        }
+        return claims;
+    }
+
     public Claims parseAccessToken(String token) {
         Claims claims = parse(token);
-        if (!"access".equals(claims.get("token_type", String.class))) {
+        if (!"access".equals(claims.get("token_type", String.class))
+                || !Boolean.TRUE.equals(claims.get("mfa_verified", Boolean.class))) {
             throw new IllegalArgumentException("Token is not an access token");
         }
         return claims;
@@ -51,7 +75,8 @@ public class JwtService {
 
     public Claims parseRefreshToken(String token) {
         Claims claims = parse(token);
-        if (!"refresh".equals(claims.get("token_type", String.class))) {
+        if (!"refresh".equals(claims.get("token_type", String.class))
+                || !Boolean.TRUE.equals(claims.get("mfa_verified", Boolean.class))) {
             throw new IllegalArgumentException("Token is not a refresh token");
         }
         return claims;
@@ -63,6 +88,7 @@ public class JwtService {
             .id(userId.toString())
             .issuer(issuer)
             .claim("token_type", tokenType)
+            .claim("mfa_verified", true)
             .issuedAt(new Date())
             .expiration(new Date(System.currentTimeMillis() + expirationMs))
             .signWith(key())
